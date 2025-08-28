@@ -11,7 +11,15 @@ import torch
 try:
     import gymnasium as gym
 except ModuleNotFoundError:
-    print("gymnasium module not found.")
+    try:
+        import gym
+    except ModuleNotFoundError:
+        print("Neither gymnasium nor gym found - using dummy")
+        class DummyGym:
+            class Wrapper:
+                def __init__(self, env):
+                    self.env = env
+        gym = DummyGym()
 
 from pearl.utils.instantiations.spaces.discrete_action import DiscreteActionSpace
 

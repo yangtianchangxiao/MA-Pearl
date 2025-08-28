@@ -1,4 +1,16 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
+
+try:
+    import gymnasium as gym
+except ModuleNotFoundError:
+    try:
+        import gym
+    except ModuleNotFoundError:
+        class DummyGym:
+            class Wrapper:
+                def __init__(self, env):
+                    self.env = env
+        gym = DummyGym()
 # All rights reserved.
 #
 # This source code is licensed under the MIT license found in the

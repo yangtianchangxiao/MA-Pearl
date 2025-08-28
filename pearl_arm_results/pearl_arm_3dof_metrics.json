@@ -1,0 +1,29 @@
+{
+  "episodes": [],
+  "success_rate": [],
+  "avg_reward": [],
+  "buffer_size": [],
+  "throughput": [],
+  "config": {
+    "dof": 3,
+    "max_episode_steps": 550,
+    "goal_threshold": 0.3,
+    "episodes": 1500,
+    "num_processes": 4,
+    "device": "cuda:0",
+    "buffer_capacity": 500000,
+    "batch_size": 512,
+    "training_rounds": 1,
+    "actor_hidden_dims": [
+      512,
+      512
+    ],
+    "critic_hidden_dims": [
+      512,
+      512
+    ],
+    "learning_starts": 50000,
+    "learn_every": 1,
+    "eval_every": 10
+  }
+}

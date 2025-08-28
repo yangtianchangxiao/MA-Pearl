@@ -1,0 +1,141 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Robot Arm Visualization</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body { margin: 0; }
+        canvas { display: block; }
+        #controls {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <button onclick="reset()">Reset</button>
+        <button onclick="toggleAutoStep()">Start/Stop</button>
+    </div>
+    <script>
+        // Three.js setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Camera position
+        camera.position.set(2, 2, 2);
+        camera.lookAt(0, 0, 0);
+
+        // Lights
+        const light = new THREE.DirectionalLight(0xffffff, 1);
+        light.position.set(1, 1, 1);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0x404040));
+
+        // Robot arm segments
+        const robotSegments = [];
+        const material = new THREE.MeshPhongMaterial({color: 0x0088ff});
+        
+        // Ball
+        const ballGeometry = new THREE.SphereGeometry(0.05);
+        const ballMaterial = new THREE.MeshPhongMaterial({color: 0xff0000});
+        const ball = new THREE.Mesh(ballGeometry, ballMaterial);
+        scene.add(ball);
+
+        // Grid
+        const grid = new THREE.GridHelper(4, 40);
+        scene.add(grid);
+
+        let autoStep = false;
+        let lastStepTime = 0;
+        const stepInterval = 50; // ms
+
+        function reset() {
+            fetch('/reset')
+                .then(response => response.json())
+                .then(updateScene);
+        }
+
+        function step() {
+            fetch('/step')
+                .then(response => response.json())
+                .then(updateScene);
+        }
+
+        function toggleAutoStep() {
+            autoStep = !autoStep;
+            if (autoStep) {
+                lastStepTime = performance.now();
+                animate();
+            }
+        }
+
+        function updateScene(state) {
+            // Update robot segments
+            while (robotSegments.length > 0) {
+                const segment = robotSegments.pop();
+                scene.remove(segment);
+            }
+
+            for (let i = 0; i < state.robot_positions.length - 1; i++) {
+                const start = new THREE.Vector3(...state.robot_positions[i]);
+                const end = new THREE.Vector3(...state.robot_positions[i + 1]);
+                
+                const direction = end.clone().sub(start);
+                const length = direction.length();
+                
+                const geometry = new THREE.CylinderGeometry(0.02, 0.02, length);
+                const segment = new THREE.Mesh(geometry, material);
+                
+                // Position and rotate segment
+                segment.position.copy(start.clone().add(end).multiplyScalar(0.5));
+                segment.quaternion.setFromUnitVectors(
+                    new THREE.Vector3(0, 1, 0),
+                    direction.normalize()
+                );
+                
+                scene.add(segment);
+                robotSegments.push(segment);
+            }
+
+            // Update ball position
+            ball.position.set(...state.ball_position);
+
+            if (state.done) {
+                autoStep = false;
+            }
+        }
+
+        function animate(currentTime) {
+            if (autoStep) {
+                if (currentTime - lastStepTime >= stepInterval) {
+                    step();
+                    lastStepTime = currentTime;
+                }
+                requestAnimationFrame(animate);
+            }
+            renderer.render(scene, camera);
+        }
+
+        // Initial reset
+        reset();
+        renderer.setAnimationLoop(() => {
+            renderer.render(scene, camera);
+        });
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
+        

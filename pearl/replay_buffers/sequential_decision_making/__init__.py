@@ -12,6 +12,6 @@ from .sarsa_replay_buffer import SARSAReplayBuffer
 
 __all__ = [
     "BootstrapReplayBuffer",
-    "SARSAReplayBuffer",
     "HindsightExperienceReplayBuffer",
+    "SARSAReplayBuffer",
 ]

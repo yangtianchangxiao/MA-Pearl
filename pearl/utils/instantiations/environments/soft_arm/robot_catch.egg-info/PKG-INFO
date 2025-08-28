@@ -1,0 +1,6 @@
+Metadata-Version: 2.1
+Name: robot-catch
+Version: 0.1.0
+Summary: A robotic arm catching environment for reinforcement learning
+Author: Your Name
+Requires-Python: >=3.8

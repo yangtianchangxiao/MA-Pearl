@@ -1,0 +1,52 @@
+defaults: &defaults
+  total_time_steps: 1000000
+  learning_rate: 0.0003
+  batch_size: 256
+  gamma: 0.99
+  tau: 0.005
+  buffer_size: 1000000
+  hidden_dims: [256, 256]
+  num_envs: 8
+  eval_interval: 10000
+  num_eval_episodes: 10
+  device: "cuda"
+  save_interval: 100000
+  log_interval: 1000
+  tensorboard_log: true
+  log_dir: "logs"
+  # SAC specific parameters
+  alpha: 0.2
+  target_entropy: auto
+  train_freq: 1
+  gradient_steps: 1
+  ent_coef: auto
+  target_update_interval: 1
+  learning_starts: 1000
+
+openrl: &openrl
+  <<: *defaults
+  # OpenRL specific settings
+  env_name: "RobotCatchEnv-v0"
+  model_dir: "models/openrl"
+  log_dir: "logs/openrl"
+
+optimized: &optimized
+  <<: *defaults
+  # Optimized SAC specific settings
+  env_name: "RobotCatchEnv-v0"
+  model_dir: "models/optimized"
+  log_dir: "logs/optimized"
+  # Additional optimizations
+  learning_rate: 0.0001
+  batch_size: 512
+  buffer_size: 2000000
+  hidden_dims: [512, 512]
+  train_freq: 2
+  gradient_steps: 2
+  learning_starts: 5000
+  use_amp: true
+  gradient_clip: 1.0
+  init_temp: 1.0
+  prioritized_replay: true
+  priority_alpha: 0.6
+  priority_beta: 0.4

@@ -1,0 +1,166 @@
+agent_config:
+  type: "sac"
+  hidden_dims: [256, 256]
+  buffer_size: 2000000
+  batch_size: 1024
+  gamma: 0.99
+  tau: 0.005
+  alpha: 0.2
+  lr: 0.0001
+  num_envs: 8
+  device: "cuda:1"
+  prioritized_replay: false
+  per_alpha: 0.6
+  per_beta: 0.4
+  per_eps: 1e-6
+  gradient_clip: 0.5
+  lr_schedule:
+    enabled: true
+    warmup_steps: 100000
+    decay_steps: 1000000
+    final_ratio: 0.1
+  optimizer:
+    type: "adam"
+    weight_decay: 0.0001
+    amsgrad: true
+
+env_config:
+  max_steps: 200
+  catch_radius: 0.05
+  perception_radius: 3.0
+  dt: 0.02
+  thresholds:
+    velocity: 0.001  # 进一步降低速度阈值，几乎不考虑速度要求
+    smooth: 0.5    # 平滑度阈值
+    magnitude: 1.0 # 幅度阈值
+    jerk: 0.5      # 加加速度阈值
+  catch:
+    radius: 0.05   # 抓取半径
+    min_angle: 0   # 最小角度要求
+    max_angle: 180 # 最大角度要求
+  reward_scale:
+    distance: 0.05        # 进一步降低结果距离的权重
+    distance_intention: 5.0  # 大幅提高意图距离的权重
+    angle: 0.0          # 暂时不考虑角度
+    angle_intention: 0.0 # 暂时不考虑角度意图
+    catch: 100.0        # 保持抓住的奖励
+    smooth: 0.0         # 暂时不考虑平滑度
+    magnitude: 0.0      # 暂时不考虑幅度
+    jerk: 0.0          # 暂时不考虑加加速度
+  robot:
+    velocity_limits:
+      alpha: 4.71238898038  # 3*pi/2, 270度/秒
+      beta: 6.28318530718   # 2*pi, 360度/秒
+
+training_config:
+  max_steps: 1000000
+  eval_interval: 10000
+  log_interval: 1000
+  num_updates: 50
+  update_interval: 50
+  warmup_steps: 10000
+  curriculum:
+    enabled: true
+    success_threshold: 0.7
+    min_episodes: 100
+    stages:
+      1:  # 第一阶段：���要关注意图距离
+        reward_scale:
+          distance: 0.05
+          distance_intention: 10000.0  # 在第一阶段给予更强的意图指导
+          angle: 0.0
+          angle_intention: 0.0
+          catch: 100.0
+          smooth: 0.0
+          magnitude: 0.0
+          jerk: 0.0
+        ball_config:
+          pos_range:
+            x: [-0.9, -0.9]
+            y: [0.0, 0.0]
+            z: [1.1, 1.1]
+          throw_config:
+            speed: [2.0, 2.0]
+            angle_h: [0, 0]
+            angle_v: [-10, -10]
+        catch:
+          radius: 0.3    # 增加到30厘米
+          min_angle: 0    # 不考虑角度要求
+          max_angle: 180
+      2:  # 第二阶段：引入简单的球轨迹变化，仍主要关注距离
+        reward_scale:
+          distance: 0.5
+          distance_intention: 1000
+          angle: 0.0
+          angle_intention: 0.0
+          catch: 100.0
+          smooth: 0.0
+          magnitude: 0.0
+          jerk: 0.0
+        ball_config:
+          pos_range:
+            x: [-1.0, -0.8]
+            y: [-0.2, 0.2]
+            z: [1.1, 1.1]
+          throw_config:
+            speed: [2.0, 2.5]
+            angle_h: [-10, 10]
+            angle_v: [-10, -10]
+        catch:
+          radius: 0.08   # 稍微减小抓取半径
+          min_angle: 0   # 仍不考虑角度要求
+          max_angle: 180
+      3:  # 第三阶段：开始引入角度要求
+        reward_scale:
+          distance: 0.5
+          distance_intention: 1000
+          angle: 1.0
+          angle_intention: 10
+          catch: 100.0
+          smooth: 0.0
+          magnitude: 0.0
+          jerk: 0.0
+        ball_config:
+          pos_range:
+            x: [-1.0, -0.8]
+            y: [-0.3, 0.3]
+            z: [1.0, 1.2]
+          throw_config:
+            speed: [2.0, 3.0]
+            angle_h: [-15, 15]
+            angle_v: [-15, 0]
+        catch:
+          radius: 0.06   # 继续减小抓取半径
+          min_angle: 45  # 开始引入角度要求
+          max_angle: 135
+      4:  # 第四阶段：最终目标，加入动作优雅性要求
+        reward_scale:
+          distance: 2.0
+          distance_intention: 2.0
+          angle: 2.0
+          angle_intention: 2.0
+          catch: 100.0
+          smooth: 0.1
+          magnitude: 0.1
+          jerk: 0.1
+        ball_config:
+          pos_range:
+            x: [-1.0, -0.8]
+            y: [-0.3, 0.3]
+            z: [1.0, 1.2]
+          throw_config:
+            speed: [2.0, 3.0]
+            angle_h: [-15, 15]
+            angle_v: [-15, 0]
+        catch:
+          radius: 0.05   # 最终的抓取半径
+          min_angle: 60  # 最终的角度要求
+          max_angle: 120
+  early_stopping:
+    enabled: true
+    patience: 10
+    min_delta: 0.0
+  checkpoint:
+    save_freq: 10000
+    keep_best: true
+    max_to_keep: 5

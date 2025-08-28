@@ -1,0 +1,5 @@
+gymnasium>=0.26.3
+numpy
+matplotlib
+openrl
+torch

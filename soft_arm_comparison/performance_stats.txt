@@ -1,0 +1,7 @@
+SOFT ARM PERFORMANCE COMPARISON
+============================================================
+Random Policy Success Rate: 0.0%
+Trained Policy Success Rate: 0.0%
+Improvement Factor: 0.0x
+Average Reward Improvement: +0.00
+Average Distance Improvement: -0.189m

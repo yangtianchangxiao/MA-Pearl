@@ -6,6 +6,8 @@
 
 # pyre-strict
 
+from .arm_environment import NDOFArmEnvironment
+from .soft_arm_environment import SoftArmReachEnvironment, SoftArmReachEnv
 from .contextual_bandit_environment import ContextualBanditEnvironment
 from .contextual_bandit_linear_synthetic_environment import (
     ContextualBanditLinearSyntheticEnvironment,
@@ -29,6 +31,9 @@ from .sparse_reward_environment import (
 
 
 __all__ = [
+    "NDOFArmEnvironment",
+    "SoftArmReachEnvironment",
+    "SoftArmReachEnv",
     "ObservationTransformationEnvironmentAdapterBase",
     "ContinuousSparseRewardEnvironment",
     "ContextualBanditEnvironment",

@@ -308,3 +308,130 @@ def compute_output_dim_model_cnn(
             model_cnn(dummy_input), start_dim=1, end_dim=-1
         )
     return dummy_output_flattened.shape[1]
+
+
+def joint_aware_block(
+    joint_dim: int,
+    context_dim: int,
+    hidden_dims: list[int] | None,
+    output_dim: int = 1,
+    joint_structure: str = "chain",
+    use_layer_norm: bool = True,
+    hidden_activation: str = "relu",
+    last_activation: str | None = None,
+    dropout_ratio: float = 0.0,
+    **kwargs: Any,
+) -> nn.Module:
+    """
+    Joint-aware network block for robotic control.
+    
+    This block processes joint states with awareness of their physical structure,
+    eliminating special cases that arise from treating joints independently.
+    
+    Args:
+        joint_dim: number of joints/DOF
+        context_dim: dimension of additional context (goals, states, etc.)
+        hidden_dims: list of hidden layer dimensions
+        output_dim: output dimension
+        joint_structure: "chain" for serial chain, "tree" for branched structure
+        use_layer_norm: normalize features for stable joint control
+        hidden_activation: activation for hidden layers
+        last_activation: optional activation for output layer
+        dropout_ratio: dropout for regularization
+        
+    Returns:
+        nn.Sequential module that processes [joint_features, context_features]
+        
+    The key insight: instead of concatenating joint+context and hoping the network
+    learns structure, explicitly encode the joint relationships first.
+    """
+    if hidden_dims is None:
+        hidden_dims = [64, 64]
+    
+    layers = []
+    
+    # Joint encoder: processes joint states with structural awareness
+    if joint_structure == "chain":
+        # Serial chain: each joint affects all subsequent joints
+        joint_encoder_layers = []
+        
+        # First pass: individual joint features
+        joint_encoder_layers.append(nn.Linear(joint_dim, joint_dim))
+        if use_layer_norm:
+            joint_encoder_layers.append(nn.LayerNorm(joint_dim))
+        joint_encoder_layers.append(ActivationType(hidden_activation).module())
+        
+        # Second pass: pairwise interactions (upper triangular for causality)
+        interaction_dim = (joint_dim * (joint_dim + 1)) // 2
+        joint_encoder_layers.append(nn.Linear(joint_dim, interaction_dim))
+        if use_layer_norm:
+            joint_encoder_layers.append(nn.LayerNorm(interaction_dim))
+        joint_encoder_layers.append(ActivationType(hidden_activation).module())
+        
+        # Compress to joint feature representation
+        joint_feature_dim = hidden_dims[0] // 2
+        joint_encoder_layers.append(nn.Linear(interaction_dim, joint_feature_dim))
+        
+        joint_encoder = nn.Sequential(*joint_encoder_layers)
+    else:
+        # Fallback to simple MLP for non-chain structures
+        joint_encoder = mlp_block(
+            input_dim=joint_dim,
+            hidden_dims=[hidden_dims[0] // 2],
+            output_dim=hidden_dims[0] // 2,
+            use_layer_norm=use_layer_norm,
+            hidden_activation=hidden_activation,
+        )
+    
+    # Context encoder: processes non-joint information
+    context_feature_dim = hidden_dims[0] // 2
+    context_encoder = mlp_block(
+        input_dim=context_dim,
+        hidden_dims=[context_feature_dim],
+        output_dim=context_feature_dim,
+        use_layer_norm=use_layer_norm,
+        hidden_activation=hidden_activation,
+    )
+    
+    # Fusion network: combines joint and context representations
+    fusion_input_dim = hidden_dims[0]
+    remaining_hidden = hidden_dims[1:] if len(hidden_dims) > 1 else []
+    fusion_network = mlp_block(
+        input_dim=fusion_input_dim,
+        hidden_dims=remaining_hidden,
+        output_dim=output_dim,
+        use_layer_norm=use_layer_norm,
+        hidden_activation=hidden_activation,
+        last_activation=last_activation,
+        dropout_ratio=dropout_ratio,
+    )
+    
+    # Create composite network
+    class JointAwareComposite(nn.Module):
+        def __init__(
+            self, 
+            joint_encoder: nn.Module, 
+            context_encoder: nn.Module, 
+            fusion_network: nn.Module,
+            joint_dim: int
+        ):
+            super().__init__()
+            self.joint_encoder = joint_encoder
+            self.context_encoder = context_encoder
+            self.fusion_network = fusion_network
+            self.joint_dim = joint_dim
+            
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            # Split input: [joint_features, context_features]
+            joint_features = x[:, :self.joint_dim]
+            context_features = x[:, self.joint_dim:]
+            
+            # Process each component
+            joint_repr = self.joint_encoder(joint_features)
+            context_repr = self.context_encoder(context_features)
+            
+            # Fuse representations
+            combined = torch.cat([joint_repr, context_repr], dim=-1)
+            return self.fusion_network(combined)
+    
+    return JointAwareComposite(joint_encoder, context_encoder, fusion_network, joint_dim)
