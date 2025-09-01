@@ -435,3 +435,39 @@ def joint_aware_block(
             return self.fusion_network(combined)
     
     return JointAwareComposite(joint_encoder, context_encoder, fusion_network, joint_dim)
+
+
+def robot_graph_block(
+    node_feature_dim: int,
+    hidden_dim: int = 128,
+    num_layers: int = 3,
+    max_nodes: int = 10,
+    num_heads: int = 4,
+    structural_embedding_dim: int = 32,
+    **kwargs: Any,
+) -> nn.Module:
+    """
+    A reusable Graph Transformer block for robotic applications
+    Similar to mlp_block but for graph-structured robot data
+    
+    Args:
+        node_feature_dim: dimension of node features (joint state + goal info)
+        hidden_dim: dimension of hidden representations
+        num_layers: number of graph transformer layers
+        max_nodes: maximum number of nodes in the graph
+        num_heads: number of attention heads
+        structural_embedding_dim: dimension of structural embeddings
+    Returns:
+        a RobotGraphTransformer module
+    """
+    from pearl.neural_networks.common.graph_components import RobotGraphTransformer
+    
+    return RobotGraphTransformer(
+        node_feature_dim=node_feature_dim,
+        hidden_dim=hidden_dim,
+        num_layers=num_layers,
+        max_nodes=max_nodes,
+        num_heads=num_heads,
+        structural_embedding_dim=structural_embedding_dim,
+        **kwargs
+    )

@@ -8,6 +8,8 @@
 
 from .arm_environment import NDOFArmEnvironment
 from .soft_arm_environment import SoftArmReachEnvironment, SoftArmReachEnv
+from .variable_soft_arm_environment import VariableSoftArmReachEnvironment, VariableSoftArmReachEnv
+from .multi_dof_variable_soft_arm_environment import MultiDOFVariableSoftArmReachEnvironment
 from .contextual_bandit_environment import ContextualBanditEnvironment
 from .contextual_bandit_linear_synthetic_environment import (
     ContextualBanditLinearSyntheticEnvironment,
@@ -34,6 +36,9 @@ __all__ = [
     "NDOFArmEnvironment",
     "SoftArmReachEnvironment",
     "SoftArmReachEnv",
+    "VariableSoftArmReachEnvironment",
+    "VariableSoftArmReachEnv",
+    "MultiDOFVariableSoftArmReachEnvironment",
     "ObservationTransformationEnvironmentAdapterBase",
     "ContinuousSparseRewardEnvironment",
     "ContextualBanditEnvironment",

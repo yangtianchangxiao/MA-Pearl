@@ -173,11 +173,53 @@ class TensorBasedReplayBuffer(ReplayBuffer):
             return None
         return torch.tensor([cost])
 
-    def _process_single_terminated(self, terminated: bool) -> torch.Tensor:
-        return torch.tensor([terminated])  # (1,)
+    def _process_single_terminated(self, terminated) -> torch.Tensor:
+        """
+        Process terminated flag to ensure consistent tensor format.
+        
+        Supports both bool and tensor inputs for maximum compatibility.
+        Always returns 1D tensor of shape (1,) for efficient batching.
+        
+        Args:
+            terminated: bool or torch.Tensor (any shape)
+        Returns:
+            torch.Tensor: 1D tensor of shape (1,) 
+        """
+        if isinstance(terminated, torch.Tensor):
+            if terminated.dim() == 0:  # 0-dim tensor (scalar)
+                return terminated.unsqueeze(0)  # Convert to shape (1,)
+            elif terminated.dim() == 1 and terminated.shape[0] == 1:  # Already correct shape
+                return terminated
+            else:
+                # Handle unexpected tensor shapes - extract first element
+                return terminated.flatten()[:1]  # Take first element as (1,)
+        else:
+            # Python bool or other primitive
+            return torch.tensor([terminated])  # (1,)
 
-    def _process_single_truncated(self, truncated: bool) -> torch.Tensor:
-        return torch.tensor([truncated])  # (1,)
+    def _process_single_truncated(self, truncated) -> torch.Tensor:
+        """
+        Process truncated flag to ensure consistent tensor format.
+        
+        Supports both bool and tensor inputs for maximum compatibility.
+        Always returns 1D tensor of shape (1,) for efficient batching.
+        
+        Args:
+            truncated: bool or torch.Tensor (any shape)
+        Returns:
+            torch.Tensor: 1D tensor of shape (1,)
+        """
+        if isinstance(truncated, torch.Tensor):
+            if truncated.dim() == 0:  # 0-dim tensor (scalar)
+                return truncated.unsqueeze(0)  # Convert to shape (1,)
+            elif truncated.dim() == 1 and truncated.shape[0] == 1:  # Already correct shape
+                return truncated
+            else:
+                # Handle unexpected tensor shapes - extract first element
+                return truncated.flatten()[:1]  # Take first element as (1,)
+        else:
+            # Python bool or other primitive
+            return torch.tensor([truncated])  # (1,)
 
     @staticmethod
     def create_action_tensor_and_mask(

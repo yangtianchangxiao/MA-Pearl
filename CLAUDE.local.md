@@ -108,3 +108,180 @@
    "这10行可以变成3行"
    "数据结构错了，应该是..."
    ```
+
+## Pearl框架架构原则 (项目特定规范)
+
+### 1. 网络组件架构模式
+**原则**: 抽象与实现分离，遵循Pearl现有模式
+```text
+✅ 正确模式:
+- pearl/neural_networks/common/utils.py: 提供抽象接口函数 (如mlp_block, robot_graph_block)
+- pearl/neural_networks/common/xxx_components.py: 实现具体组件类
+- 好处: 统一调用接口，便于测试和扩展
+
+❌ 错误模式:
+- 直接在网络类中硬编码实现
+- 缺少抽象接口，调用不一致
+```
+
+### 2. Checkpoint保存策略
+**原则**: "只保存当前最高的" - 防止磁盘空间溢出
+```python
+# ✅ 正确实现
+def _save_checkpoint(self, agent, episode, success_rate):
+    if success_rate > self.best_success_rate:
+        self.best_success_rate = success_rate
+        checkpoint_path = self.save_dir / "best_checkpoint.pt" # 固定文件名
+        torch.save({...}, checkpoint_path)  # 覆盖保存
+
+# ❌ 错误实现  
+checkpoint_path = f"checkpoint_episode_{episode}.pt"  # 每次新文件
+```
+
+### 3. 任务目录结构
+**原则**: 每个任务有独立子目录，避免checkpoint混淆
+```text
+✅ 正确结构:
+results/
+├── soft_arm_6dof/best_checkpoint.pt
+├── graph_variable_soft_arm_6dof/best_checkpoint.pt  
+└── ndof_3dof/best_checkpoint.pt
+
+❌ 错误结构:
+results/
+├── checkpoint_episode_1000.pt (哪个任务的?)
+├── checkpoint_episode_2000.pt 
+└── best_checkpoint.pt (混在一起)
+```
+
+### 4. Graph网络集成规范
+**原则**: 完全兼容Pearl SAC框架，无修改原有接口
+```python
+# ✅ 正确集成
+class GraphActorNetwork(GaussianActorNetwork):
+    # 继承现有接口，内部使用Graph处理
+    def forward(self, state_batch):
+        _, graph_features = self._graph_transformer(state_batch)
+        return super().forward(graph_features)
+
+# ❌ 错误集成
+class GraphActorNetwork(nn.Module):  # 破坏Pearl接口
+    def custom_forward(self, ...):   # 不兼容原有调用
+```
+
+### 5. 训练配置一致性
+**原则**: 对比实验必须使用完全相同的超参数
+```python
+# ✅ 对比实验配置
+mlp_config = {...}  # 基线配置
+graph_config = mlp_config.copy()  # 完全相同
+graph_config.update({  # 只改网络相关
+    'num_graph_layers': 3,
+    'num_attention_heads': 4, 
+})
+```
+
+## 实战调试经验记录 (项目特定)
+
+### Graph SAC集成调试案例 (2025-08-29)
+
+**问题背景**: Graph网络集成Pearl SAC框架时遇到的接口兼容性问题
+
+#### 🐛 遇到的错误及解决方案
+
+**1. Actor接口不兼容错误**
+```
+TypeError: GraphActorNetwork.sample_action() got an unexpected keyword argument 'get_log_prob'
+```
+
+**根本原因**: SAC需要调用`sample_action(state_batch, get_log_prob=True)`获取log概率
+- 标准`GaussianActorNetwork`支持此参数
+- 我的`GraphActorNetwork`重写时缺少此参数
+
+**解决方案**: 修改GraphActorNetwork接口保持完全兼容
+```python
+def sample_action(
+    self, state_batch: torch.Tensor, get_log_prob: bool = False
+) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+    # 处理graph features
+    result = super().sample_action(graph_features, get_log_prob=get_log_prob)
+    if get_log_prob:
+        return action, log_prob
+    else:
+        return action
+```
+
+**2. Twin Critic复杂性问题**
+```
+ValueError: too many values to unpack (expected 2)
+```
+
+**根本原因**: SAC使用Twin Q-Learning，自动创建两个critic
+- 传入`critic_network_instance`可能干扰twin critic创建
+- `GraphQValueNetwork`返回单个Q值，但SAC期望Twin Q处理
+
+**临时解决方案**: Graph Actor + MLP Critic混合架构
+```python
+sac = ContinuousSoftActorCritic(
+    actor_network_instance=graph_actor,  # 使用Graph
+    # critic自动使用默认MLP twin critics
+    critic_hidden_dims=[256, 256],
+)
+```
+
+#### 🧪 快速迭代验证策略
+
+**错误的调试方式**: 直接用100K episodes长期训练调试
+- 每次错误需要等待数分钟才能发现
+- 浪费大量GPU时间和电力
+- 难以快速迭代修复
+
+**正确的调试方式**: 先用快速测试配置验证
+```python
+# 🧪 快速测试配置
+config = {
+    'episodes': 500,           # 而不是100,000
+    'buffer_capacity': 50000,  # 而不是1,000,000
+    'learning_starts': 1000,   # 而不是50,000
+    'batch_size': 64,          # 而不是512
+    'learn_every': 10,         # 而不是50
+}
+```
+
+**代码管理最佳实践**: 注释而不删除配置
+```python
+# 🚀 生产配置
+'episodes': 100000,
+
+# 🧪 快速测试配置 (已验证成功，备用)  
+# 'episodes': 500,
+```
+
+#### 💡 关键洞察
+
+**1. Pearl框架的接口规范性**
+- 继承现有网络类必须完全实现相同接口
+- `get_log_prob`参数不是可选的，是SAC的必需接口
+- 向后兼容性通过默认参数值保证
+
+**2. 复杂系统的调试策略**
+- 先用最小配置验证核心功能
+- 确认无误后再扩展到完整配置
+- 保留快速测试配置作为回归测试
+
+**3. 混合架构的实用性**
+- Graph Actor + MLP Critic 是合理的中间方案
+- 重点验证Graph网络对策略学习的改进
+- 避免同时调试多个复杂组件
+
+#### 🎯 经验教训
+
+**"Never debug with production configs"**
+- 复杂RL训练的调试必须用快速配置
+- 5分钟验证 > 50分钟等待错误
+- 代码修改的迭代速度比训练速度重要100倍
+
+**"Interface compatibility is sacred"**
+- Pearl这样的框架有严格的接口契约
+- 自定义组件必须100%兼容，哪怕是一个参数
+- 测试兼容性比测试性能更重要

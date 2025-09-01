@@ -921,3 +921,95 @@ class CNNQValueMultiHeadNetwork(QValueNetwork):
     @property
     def action_dim(self) -> int:
         return self._action_dim
+
+
+
+class GraphQValueNetwork(QValueNetwork):
+    """
+    Q-value network using Graph Transformer for robotic manipulators.
+    
+    Processes robot state through graph neural networks to capture joint 
+    dependencies and kinematic relationships, then combines with actions
+    for Q-value estimation. Compatible with Pearl SAC framework.
+    
+    Features:
+    - Structural embedding of joint properties
+    - Multi-head attention over joints
+    - Kinematic chain processing
+    - Standard Q(s,a) interface for SAC
+    """
+    
+    def __init__(
+        self,
+        state_dim: int,
+        action_dim: int,
+        hidden_dims: list[int],
+        output_dim: int = 1,
+        node_feature_dim: int = 8,
+        num_graph_layers: int = 3,
+        num_attention_heads: int = 4,
+        use_layer_norm: bool = False,
+        use_kinematic_chain: bool = True,
+    ) -> None:
+        """
+        Args:
+            state_dim: Dimension of robot state observations
+            action_dim: Dimension of action space
+            hidden_dims: Hidden layer dimensions for MLP after graph processing
+            output_dim: Output dimension (typically 1 for Q-values)
+            node_feature_dim: Dimension of per-node features
+            num_graph_layers: Number of graph transformer layers
+            num_attention_heads: Number of attention heads
+            use_layer_norm: Whether to use layer normalization
+            use_kinematic_chain: Whether to use kinematic chain processing
+        """
+        super().__init__()
+        self._state_dim = state_dim
+        self._action_dim = action_dim
+        
+        # Graph Transformer backbone for state processing
+        from pearl.neural_networks.common.utils import robot_graph_block
+        self._graph_transformer = robot_graph_block(
+            node_feature_dim=node_feature_dim,
+            hidden_dim=hidden_dims[0] if hidden_dims else 128,
+            num_layers=num_graph_layers,
+            num_heads=num_attention_heads,
+            max_nodes=10,
+            structural_embedding_dim=32,
+            use_kinematic_chain=use_kinematic_chain
+        )
+        
+        # Q-value head: combines graph features with actions
+        graph_output_dim = hidden_dims[0] if hidden_dims else 128
+        self._q_head = mlp_block(
+            input_dim=graph_output_dim + action_dim,
+            hidden_dims=hidden_dims[1:] if len(hidden_dims) > 1 else [],
+            output_dim=output_dim,
+            use_layer_norm=use_layer_norm
+        )
+    
+    def get_q_values(
+        self,
+        state_batch: torch.Tensor,
+        action_batch: torch.Tensor,
+        curr_available_actions_batch: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Get Q-values for state-action pairs."""
+        # Process state through graph transformer
+        _, graph_features = self._graph_transformer(state_batch)
+        
+        # Combine graph features with actions
+        combined = torch.cat([graph_features, action_batch], dim=-1)
+        
+        # Compute Q-values
+        q_values = self._q_head(combined)
+        
+        return q_values.squeeze(-1)
+    
+    @property
+    def state_dim(self) -> int:
+        return self._state_dim
+    
+    @property 
+    def action_dim(self) -> int:
+        return self._action_dim

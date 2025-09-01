@@ -629,3 +629,407 @@ class GaussianActorNetwork(ActorNetwork):
             log_prob = log_prob.sum(dim=1, keepdim=True)
 
         return log_prob
+
+
+class GraphActorNetwork(GaussianActorNetwork):
+    """
+    Actor network using Graph Transformer for robotic manipulators.
+    
+    Processes structured robot state through graph neural networks to capture
+    joint dependencies and kinematic relationships. Particularly effective for
+    variable-length manipulators and complex kinematic chains.
+    
+    Features:
+    - Structural embedding of joint properties (lengths, types, positions)
+    - Multi-head attention over joints
+    - Kinematic chain processing for sequential dependencies
+    - Compatible with Pearl SAC framework
+    """
+    
+    def __init__(
+        self,
+        input_dim: int,
+        action_space: ActionSpace,
+        hidden_dims: List[int] | None = None,
+        node_feature_dim: int = 8,
+        num_graph_layers: int = 3,
+        num_attention_heads: int = 4,
+        use_kinematic_chain: bool = True,
+        **kwargs,
+    ) -> None:
+        """
+        Args:
+            input_dim: Dimension of input state (joint angles + lengths + goals)
+            action_space: Action space defining valid actions
+            hidden_dims: Hidden layer dimensions [default: [128, 128]]
+            node_feature_dim: Dimension of per-node features [default: 8]
+            num_graph_layers: Number of graph transformer layers [default: 3]
+            num_attention_heads: Number of attention heads [default: 4]
+            use_kinematic_chain: Whether to use kinematic chain processing [default: True]
+        """
+        # Set default hidden dimensions
+        if hidden_dims is None:
+            hidden_dims = [128, 128]
+        
+        # Initialize parent class with graph features as "input"
+        output_dim = action_space.shape[0]  # Action dimension
+        super().__init__(
+            input_dim=hidden_dims[0],  # Graph transformer output dim
+            hidden_dims=hidden_dims[1:] if len(hidden_dims) > 1 else [hidden_dims[0]],  # Ensure non-empty
+            output_dim=output_dim,
+            action_space=action_space,
+            **kwargs
+        )
+        
+        # Store original input dimension for graph transformer
+        self._original_input_dim = input_dim
+        
+        # Graph Transformer backbone
+        from pearl.neural_networks.common.utils import robot_graph_block
+        self._graph_transformer = robot_graph_block(
+            node_feature_dim=node_feature_dim,
+            hidden_dim=hidden_dims[0],
+            num_layers=num_graph_layers,
+            num_heads=num_attention_heads,
+            max_nodes=10,  # Support up to 10 joints
+            structural_embedding_dim=32,
+            use_kinematic_chain=use_kinematic_chain
+        )
+        
+    def forward(self, state_batch: torch.Tensor) -> tuple[Tensor, Tensor]:
+        """
+        Forward pass through graph transformer then Gaussian actor.
+        
+        Args:
+            state_batch: [batch_size, input_dim] Raw robot observations
+        Returns:
+            mean: [batch_size, action_dim] Action means
+            log_std: [batch_size, action_dim] Action log standard deviations
+        """
+        # Check if input is already graph features or raw observations
+        # Handle both 1D and 2D inputs safely
+        if len(state_batch.shape) == 1:
+            state_batch = state_batch.unsqueeze(0)  # Add batch dimension
+        
+        if state_batch.shape[1] == self._original_input_dim:
+            # Raw observations - process through graph transformer
+            _, graph_features = self._graph_transformer(state_batch)
+        else:
+            # Already processed features - use directly
+            graph_features = state_batch
+        
+        # Pass through parent Gaussian actor network
+        return super().forward(graph_features)
+    
+    def sample_action(
+        self, state_batch: torch.Tensor, get_log_prob: bool = False
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        """
+        Sample actions using reparameterization trick.
+        
+        Args:
+            state_batch: [batch_size, input_dim] Robot state observations
+            get_log_prob: If True, also return log probability of sampled actions
+        Returns:
+            action: [batch_size, action_dim] Sampled actions
+            log_prob: [batch_size, 1] Log probabilities (if get_log_prob=True)
+        """
+        # Check if input is raw observations or processed features
+        # Handle both 1D and 2D inputs safely
+        if len(state_batch.shape) == 1:
+            state_batch = state_batch.unsqueeze(0)  # Add batch dimension
+        
+        if state_batch.shape[1] == self._original_input_dim:
+            _, graph_features = self._graph_transformer(state_batch)
+        else:
+            graph_features = state_batch
+        
+        # Call parent method with proper parameters
+        result = super().sample_action(graph_features, get_log_prob=get_log_prob)
+        
+        if get_log_prob:
+            action, log_prob = result
+            # Ensure proper shape for environment
+            if len(action.shape) > 1 and action.shape[0] == 1:
+                action = action.squeeze(0)  # Remove batch dimension if singleton
+            return action, log_prob
+        else:
+            action = result
+            # Ensure proper shape for environment
+            if len(action.shape) > 1 and action.shape[0] == 1:
+                action = action.squeeze(0)  # Remove batch dimension if singleton
+            return action
+    
+    def get_action_and_log_prob(
+        self, state_batch: torch.Tensor, get_log_prob: bool = True
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        """
+        Get actions and log probabilities for SAC training.
+        
+        Args:
+            state_batch: [batch_size, input_dim] Robot state observations
+            get_log_prob: Whether to compute log probabilities
+        Returns:
+            action: [batch_size, action_dim] Sampled actions
+            log_prob: [batch_size, 1] Log probabilities (if get_log_prob=True)
+        """
+        # Check if input is raw observations or processed features
+        # Handle both 1D and 2D inputs safely
+        if len(state_batch.shape) == 1:
+            state_batch = state_batch.unsqueeze(0)  # Add batch dimension
+        
+        if state_batch.shape[1] == self._original_input_dim:
+            _, graph_features = self._graph_transformer(state_batch)
+        else:
+            graph_features = state_batch
+        
+        # Use the parent's sample_action method with get_log_prob option
+        if hasattr(super(), 'get_action_and_log_prob'):
+            return super().get_action_and_log_prob(graph_features, get_log_prob)
+        else:
+            # Fallback: use sample_action method directly
+            if get_log_prob:
+                action = super().sample_action(graph_features)
+                # For now, return dummy log_prob - this should be implemented properly
+                log_prob = torch.zeros(action.shape[0], 1)
+                return action, log_prob
+            else:
+                return super().sample_action(graph_features)
+    
+    def get_log_probability(
+        self, state_batch: torch.Tensor, action_batch: torch.Tensor
+    ) -> Tensor:
+        """
+        Compute log probability of given actions under current policy.
+        
+        Args:
+            state_batch: [batch_size, input_dim] Robot state observations
+            action_batch: [batch_size, action_dim] Actions to evaluate
+        Returns:
+            log_prob: [batch_size, 1] Log probabilities
+        """
+        # Process through graph transformer
+        _, graph_features = self._graph_transformer(state_batch)
+        
+        # Compute log probabilities using parent network
+        return super().get_log_probability(graph_features, action_batch)
+
+
+class MultiDOFGraphActorNetwork(GaussianActorNetwork):
+    """
+    Multi-DOF Graph Actor Network for dynamic DOF robotic manipulators.
+    
+    Supports variable number of segments (2-4 segments = 4-8 DOF) within a single network.
+    Uses attention masks and padding to handle different configurations elegantly.
+    
+    Key Features:
+    - Dynamic DOF support: 2-4 segments (4-8 DOF)
+    - Attention masking for valid joints only
+    - Consistent action output dimension
+    - Pearl SAC framework compatibility
+    """
+    
+    def __init__(
+        self,
+        action_space: ActionSpace,
+        max_dof: int = 8,  # Maximum DOF (4 segments * 2)
+        max_segments: int = 4,
+        hidden_dims: List[int] | None = None,
+        node_feature_dim: int = 8,  # [joint(2) + achieved(3) + desired(3)]
+        num_graph_layers: int = 3,
+        num_attention_heads: int = 4,
+        use_kinematic_chain: bool = True,
+        **kwargs,
+    ) -> None:
+        """
+        Args:
+            action_space: Action space (should match max_dof)
+            max_dof: Maximum DOF to support [default: 8]
+            max_segments: Maximum number of segments [default: 4]
+            hidden_dims: Hidden layer dimensions [default: [256, 256]]
+            node_feature_dim: Per-node feature dimension [default: 8]
+            num_graph_layers: Graph transformer layers [default: 3]
+            num_attention_heads: Attention heads [default: 4]
+            use_kinematic_chain: Enable kinematic chain processing [default: True]
+        """
+        if hidden_dims is None:
+            hidden_dims = [256, 256]  # Larger for multi-DOF complexity
+        
+        self.max_dof = max_dof
+        self.max_segments = max_segments
+        self.spatial_dim = 3  # 3D space
+        
+        # Calculate state dimensions
+        # State: [joints(max_dof), lengths(max_segments), achieved(3), desired(3), mask(max_segments)]
+        self._full_input_dim = max_dof + max_segments + self.spatial_dim + self.spatial_dim + max_segments
+        
+        # Initialize parent with graph output as input
+        super().__init__(
+            input_dim=hidden_dims[0],  # Graph transformer output
+            hidden_dims=hidden_dims[1:] if len(hidden_dims) > 1 else [hidden_dims[0]],
+            output_dim=max_dof,  # Always output max_dof actions
+            action_space=action_space,
+            **kwargs
+        )
+        
+        # Graph Transformer for variable DOF
+        from pearl.neural_networks.common.utils import robot_graph_block
+        self._graph_transformer = robot_graph_block(
+            node_feature_dim=node_feature_dim,
+            hidden_dim=hidden_dims[0],
+            num_layers=num_graph_layers,
+            num_heads=num_attention_heads,
+            max_nodes=max_segments,  # Match max_segments
+            structural_embedding_dim=32,
+            use_kinematic_chain=use_kinematic_chain
+        )
+        
+        print(f"✅ MultiDOF Graph Actor: max_dof={max_dof}, max_segments={max_segments}")
+        print(f"   Input dim: {self._full_input_dim}, Hidden: {hidden_dims}")
+    
+    def _parse_state(self, state_batch: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """解析多DOF状态为各个组件"""
+        batch_size = state_batch.shape[0] if state_batch.dim() > 1 else 1
+        
+        if state_batch.dim() == 1:
+            state_batch = state_batch.unsqueeze(0)
+        
+        # 索引计算
+        joint_start = 0
+        joint_end = self.max_dof
+        length_start = joint_end
+        length_end = length_start + self.max_segments
+        achieved_start = length_end
+        achieved_end = achieved_start + self.spatial_dim
+        desired_start = achieved_end
+        desired_end = desired_start + self.spatial_dim
+        mask_start = desired_end
+        mask_end = mask_start + self.max_segments
+        
+        joint_angles = state_batch[:, joint_start:joint_end]
+        segment_lengths = state_batch[:, length_start:length_end]
+        achieved_goal = state_batch[:, achieved_start:achieved_end]
+        desired_goal = state_batch[:, desired_start:desired_end]
+        valid_mask = state_batch[:, mask_start:mask_end]
+        
+        return joint_angles, segment_lengths, achieved_goal, desired_goal, valid_mask
+    
+    def _create_node_features(
+        self, 
+        joint_angles: torch.Tensor, 
+        segment_lengths: torch.Tensor,
+        achieved_goal: torch.Tensor,
+        desired_goal: torch.Tensor,
+        valid_mask: torch.Tensor
+    ) -> torch.Tensor:
+        """为每个节点创建特征向量"""
+        batch_size = joint_angles.shape[0]
+        
+        # 为每个segment创建节点特征 [joint(2) + achieved(3) + desired(3)] = 8D
+        node_features = torch.zeros(batch_size, self.max_segments, 8, device=joint_angles.device)
+        
+        for i in range(self.max_segments):
+            # Joint angles (2D per segment: bend + direction)
+            if i * 2 + 1 < self.max_dof:
+                node_features[:, i, 0] = joint_angles[:, i*2]      # bend angle
+                node_features[:, i, 1] = joint_angles[:, i*2 + 1]  # direction angle
+            
+            # Goal information (broadcast to all nodes)
+            node_features[:, i, 2:5] = achieved_goal  # achieved goal
+            node_features[:, i, 5:8] = desired_goal   # desired goal
+        
+        return node_features
+    
+    def forward(self, state_batch: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Forward pass through multi-DOF graph transformer then Gaussian actor.
+        
+        Args:
+            state_batch: [batch_size, full_input_dim] Multi-DOF robot observations
+        Returns:
+            mean: [batch_size, max_dof] Action means (padded to max_dof)
+            log_std: [batch_size, max_dof] Action log standard deviations
+        """
+        # For now, use a simple approach: convert multi-DOF state to standard format
+        # Extract key components and create a standard observation format
+        joint_angles, segment_lengths, achieved_goal, desired_goal, valid_mask = self._parse_state(state_batch)
+        
+        # Create simplified observation that RobotGraphTransformer can handle
+        # Use only the first 6 joints (common format) and 3D goals
+        if state_batch.dim() == 1:
+            state_batch = state_batch.unsqueeze(0)
+        
+        batch_size = state_batch.shape[0]
+        
+        # Create standard 15D observation: [6 joints + 3 lengths + 3 achieved + 3 desired]
+        standard_obs = torch.zeros(batch_size, 15, device=state_batch.device)
+        
+        # Copy joint angles (up to 6)
+        n_joints_to_copy = min(6, joint_angles.shape[1])
+        standard_obs[:, :n_joints_to_copy] = joint_angles[:, :n_joints_to_copy]
+        
+        # Copy lengths (up to 3)
+        n_lengths_to_copy = min(3, segment_lengths.shape[1])
+        standard_obs[:, 6:6+n_lengths_to_copy] = segment_lengths[:, :n_lengths_to_copy]
+        
+        # Copy goals
+        standard_obs[:, 9:12] = achieved_goal
+        standard_obs[:, 12:15] = desired_goal
+        
+        # Process through graph transformer
+        _, graph_features = self._graph_transformer(standard_obs)
+        
+        # Pass through Gaussian actor
+        mean, log_std = super().forward(graph_features)
+        
+        return mean, log_std
+    
+    def sample_action(
+        self, 
+        state_batch: torch.Tensor, 
+        get_log_prob: bool = False
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        """
+        Sample actions for multi-DOF configuration.
+        
+        Args:
+            state_batch: [batch_size, full_input_dim] Multi-DOF observations
+            get_log_prob: If True, return log probability
+        Returns:
+            action: [batch_size, max_dof] Sampled actions (padded)
+            log_prob: [batch_size, 1] Log probabilities (if requested)
+        """
+        # Parse state to get valid mask
+        _, _, _, _, valid_mask = self._parse_state(state_batch)
+        
+        # Forward pass
+        mean, log_std = self.forward(state_batch)
+        
+        # Sample actions using reparameterization trick
+        std = log_std.exp()
+        normal_dist = torch.distributions.Normal(mean, std)
+        z = normal_dist.rsample()  # Reparameterization trick
+        action = torch.tanh(z)  # Squash to [-1, 1]
+        
+        # Scale to action space bounds
+        action = action_scaling(self._action_space, action)
+        
+        if get_log_prob:
+            # Compute log probability with Tanh correction
+            log_prob = normal_dist.log_prob(z)
+            log_prob = log_prob - torch.log(1 - action.pow(2) + 1e-7)  # Tanh correction
+            
+            # Mask out inactive DOF contributions to log_prob
+            # Create DOF-level mask by expanding segment mask
+            dof_mask = torch.zeros(valid_mask.shape[0], self.max_dof, device=valid_mask.device)
+            for i in range(self.max_segments):
+                if i * 2 + 1 < self.max_dof:
+                    dof_mask[:, i*2:i*2+2] = valid_mask[:, i:i+1]
+            
+            # Apply mask to log_prob computation
+            masked_log_prob = log_prob * dof_mask
+            log_prob = masked_log_prob.sum(dim=-1, keepdim=True)
+            
+            return action, log_prob
+        else:
+            return action

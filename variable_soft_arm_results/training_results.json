@@ -1,0 +1,41 @@
+{
+  "final_success_rate": 0.0,
+  "total_episodes": 5,
+  "total_time": 3.409116268157959,
+  "avg_throughput": 1.4666557567136425,
+  "avg_segment_length": "0.20949385",
+  "segment_length_std": "0.0032230588",
+  "metrics": {
+    "episodes": [],
+    "success_rate": [],
+    "avg_reward": [],
+    "buffer_size": [],
+    "avg_segment_length": [],
+    "config": {
+      "device": "cuda:0",
+      "episodes": 5,
+      "max_episode_steps": 200,
+      "goal_threshold": 0.15,
+      "n_segments": 3,
+      "segment_length_range": [
+        0.2,
+        0.22
+      ],
+      "include_lengths_in_obs": true,
+      "actor_hidden_dims": [
+        512,
+        512
+      ],
+      "critic_hidden_dims": [
+        512,
+        512
+      ],
+      "batch_size": 256,
+      "training_rounds": 25,
+      "buffer_capacity": 200000,
+      "learning_starts": 10000,
+      "learn_every": 50,
+      "eval_every": 500
+    }
+  }
+}
