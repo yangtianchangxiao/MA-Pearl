@@ -1,0 +1,34 @@
+{
+  "episodes": 100000,
+  "final_success_rate": 93.5,
+  "total_successes": 90377,
+  "avg_reward": -42.91994,
+  "total_time": 413063.59014225006,
+  "avg_throughput": 0.24209347516096055,
+  "buffer_size": 1000000,
+  "config": {
+    "n_segments": 3,
+    "segment_length_range": [
+      0.168,
+      0.252
+    ],
+    "goal_threshold": 0.15,
+    "max_episode_steps": 200,
+    "episodes": 100000,
+    "device": "cuda",
+    "buffer_capacity": 1000000,
+    "batch_size": 512,
+    "training_rounds": 25,
+    "learning_starts": 50000,
+    "learn_every": 50,
+    "actor_hidden_dims": [
+      512,
+      512
+    ],
+    "critic_hidden_dims": [
+      512,
+      512
+    ],
+    "eval_every": 1
+  }
+}

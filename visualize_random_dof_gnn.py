@@ -40,7 +40,7 @@ class RandomDOFGNNVisualizer:
         if not self.checkpoint_path.exists():
             raise FileNotFoundError(f"Checkpoint不存在: {self.checkpoint_path}")
         
-        checkpoint = torch.load(self.checkpoint_path, map_location=self.device)
+        checkpoint = torch.load(self.checkpoint_path, map_location=self.device, weights_only=False)
         
         # 从checkpoint获取配置
         self.config = checkpoint.get('config', {
@@ -97,8 +97,14 @@ class RandomDOFGNNVisualizer:
         # 设置action space (Pearl框架要求)
         self.agent._action_space = self.env.action_space
         
-        # 加载完整的模型权重 (现在网络架构匹配了)
-        self.agent.policy_learner.load_state_dict(checkpoint['agent_state'])
+        # 加载完整的模型权重 - 修复checkpoint格式兼容性
+        agent_state = checkpoint['agent_state']
+        if 'policy_learner._actor.node_encoder.weight' in agent_state:
+            # 新格式: agent.state_dict() 包含 policy_learner 前缀
+            self.agent.load_state_dict(agent_state)
+        else:
+            # 旧格式: policy_learner.state_dict()
+            self.agent.policy_learner.load_state_dict(agent_state)
         self.agent.policy_learner._actor.eval()  # 正确的Pearl框架访问方式
         
         # 训练统计信息

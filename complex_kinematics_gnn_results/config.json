@@ -1,0 +1,27 @@
+{
+  "dof_range": [
+    4,
+    4
+  ],
+  "segment_length_range": [
+    0.1,
+    0.35
+  ],
+  "goal_threshold": 0.15,
+  "max_episode_steps": 200,
+  "episodes": 1000,
+  "device": "cuda",
+  "buffer_capacity": 100000,
+  "batch_size": 128,
+  "training_rounds": 1,
+  "learning_starts": 5000,
+  "learn_every": 1,
+  "hidden_dim": 128,
+  "num_gnn_layers": 2,
+  "critic_hidden_dims": [
+    512,
+    512
+  ],
+  "eval_every": 1,
+  "save_dir": "complex_kinematics_gnn_results"
+}
